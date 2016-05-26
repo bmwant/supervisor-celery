@@ -36,7 +36,7 @@ class CeleryMultiControllerPlugin(ControllerPluginBase):
         if not threads:
             self.ctl.output('No process matched given expression.')
 
-    def _wrap_help(self, command):
+    def _show_help(self, help, command):
         self.ctl.output('The same as %s, but accepts wildcard expressions to match the process name.' % command)
         self.ctl.output('m%s a* - %ss all processes begining with "a".' % (command, command))
 
@@ -44,7 +44,7 @@ class CeleryMultiControllerPlugin(ControllerPluginBase):
         self._expand_wildcards(arg, command='stop')
 
     def do_cmstart(self, arg):
-        self._expand_wildcards(arg, command='start')
+        print('Starting celery multi')
 
     def do_cmrestart(self, arg):
         self._expand_wildcards(arg, command='restart')
@@ -53,7 +53,10 @@ class CeleryMultiControllerPlugin(ControllerPluginBase):
         return self._wrap_help('stop')
 
     def help_cmstart(self):
-        return self._wrap_help('start')
+        help_text = """
+        This is some help text for start command
+        """
+        return self._show_help(help_text, command='cmstart')
 
     def help_cmrestart(self):
         return self._wrap_help('restart')
