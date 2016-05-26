@@ -1,16 +1,14 @@
-====================
-Supervisor wildcards
-====================
+=================
+Supervisor celery
+=================
 
 Description
 ===========
 
-Adds ``mstop``, ``mstart`` and ``mrestart`` commands to Supervisor_. Those commands works similar to ``stop``, ``start`` and ``restart`` respectively, but they:
+Adds support for running Celery with ``celery multi`` command to Supervisor_.
 
-* add support for process name wildcarding,
-* sends the start/stop/restart signal in parallel (which makes the batch commands finish faster).
+It brings new commands such as ``cmstart``, ``cmstop`` and ``cmrestart`` to launch the processes with Celery multi_
 
-In some usecases you can use groups support in Supervisor_, but it doesn't allow you to have one process in multiple groups. That's when wildcarding can be really useful.
 
 Example
 =======
@@ -32,46 +30,29 @@ Installation
 
 ::
 
-  pip install supervisor-wildcards
+  pip install supervisor-celery
 
 And then add into your supervisor.conf:
 
 ::
 
-  [ctlplugin:wildcards]
-  supervisor.ctl_factory = supervisorwildcards.controllerplugin:make_wildcards_controllerplugin
+  [ctlplugin:celerymulti]
+  supervisor.ctl_factory = supervisorcelery.controllerplugin:make_celerymulti_controllerplugin
 
 Configuration
 =============
 
 ::
 
-  [ctlplugin:wildcards]
+  [ctlplugin:celerymulti]
   supervisor.ctl_factory = supervisorwildcards.controllerplugin:make_wildcards_controllerplugin
-  match_group = 1
-
-By default, supervisorwildcards plugin match the wildcards just against process name (not group). Setting match_group = 1 will try to match the pattern against "group_name:process_name" instead.
 
 Changelog
 =========
 
- * 0.1.3
-
-   * ``all`` parameter expands to ``*``
-   * Added ``match_group`` config option
-
- * 0.1.2
-
-   * Fixed matching processes that are assigned to a group
-
- * 0.1.1
-
-   * Commands are run in parallel (Thanks, Honza Kral)
-
  * 0.1.0
 
-   * Simple support for ``mstop``, ``mstart``, ``mrestart``
-
-
+    * Add project skeleton
 
 .. _Supervisor: http://supervisord.org/
+.. _Celery multi: http://docs.celeryproject.org/en/latest/reference/celery.bin.multi.html

@@ -3,8 +3,9 @@ import fnmatch
 
 from supervisor.supervisorctl import ControllerPluginBase
 
-class WildCardsControllerPlugin(ControllerPluginBase):
-    name = 'wildcards'
+
+class CeleryMultiControllerPlugin(ControllerPluginBase):
+    name = 'celerymulti'
 
     def __init__(self, controller, **config):
         self.ctl = controller
@@ -39,23 +40,24 @@ class WildCardsControllerPlugin(ControllerPluginBase):
         self.ctl.output('The same as %s, but accepts wildcard expressions to match the process name.' % command)
         self.ctl.output('m%s a* - %ss all processes begining with "a".' % (command, command))
 
-
-    def do_mstop(self, arg):
+    def do_cmstop(self, arg):
         self._expand_wildcards(arg, command='stop')
-    def do_mstart(self, arg):
+
+    def do_cmstart(self, arg):
         self._expand_wildcards(arg, command='start')
-    def do_mrestart(self, arg):
+
+    def do_cmrestart(self, arg):
         self._expand_wildcards(arg, command='restart')
 
-    def help_mstop(self):
+    def help_cmstop(self):
         return self._wrap_help('stop')
-    def help_mstart(self):
+
+    def help_cmstart(self):
         return self._wrap_help('start')
-    def help_mrestart(self):
+
+    def help_cmrestart(self):
         return self._wrap_help('restart')
 
 
-
-
-def make_wildcards_controllerplugin(controller, **config):
-    return WildCardsControllerPlugin(controller, **config)
+def make_celerymulti_controllerplugin(controller, **config):
+    return CeleryMultiControllerPlugin(controller, **config)
