@@ -12,18 +12,9 @@ from supervisor.xmlrpc import RPCError
 
 API_VERSION = '1.0'
 
-#
-# class ExtendedProcessConfig(ProcessConfig):
-#     req_params_celery = [
-#         'customargs'
-#     ]
-#     req_param_names = ProcessConfig.req_param_names.extend(req_params_celery)
-
 
 class ConfigReaderNamespaceRPCInterface(object):
-    """ A supervisor rpc interface that facilitates manipulation of
-    supervisor's configuration and state in ways that are not
-    normally accessible at runtime.
+    """
     """
     def __init__(self, supervisord, **config):
         self.supervisord = supervisord
@@ -31,22 +22,58 @@ class ConfigReaderNamespaceRPCInterface(object):
     def _update(self, func_name):
         self.update_text = func_name
 
-    # RPC API methods
-
+    # RPC API method
     def get_api_version(self):
-        self._update('getAPIVersion')
+        self._update('get_api_version')
         return API_VERSION
 
-    def get_info(self):
-        self._update('getGroupNames')
-        import pdb; pdb.set_trace()
+    def get_test(self):
+        self._update('get_test')
+
         configfile = self.supervisord.options.configfile
         config = ConfigParser.RawConfigParser()
         config.read(configfile)
+        proc_section = 'program:red'
+        workernames = config.get(proc_section, 'workernames')
+        tasks = config.get(proc_section, 'tasks')
+        concurrency = config.getint(proc_section, 'concurrency')
+        loglevel = config.get(proc_section, 'loglevel')
+        logfile = config.get(proc_section, 'logfile')
+        pidfile = config.get(proc_section, 'pidfile')
+        group = self._get_process_group('red')
+        print(group)
+        options = self.supervisord.options
+        proc_command = ('celery multi start {workers} -A {tasks} '
+                        '--concurrency={concurrency} '
+                        '--loglevel={loglevel} '
+                        '--logfile={logfile} '
+                        '--pidfile={pidfile}'.format(
+            workers=workernames,
+            tasks=tasks,
+            concurrency=concurrency,
+            loglevel=loglevel,
+            logfile=logfile,
+            pidfile=pidfile
+        ))
+        print(proc_command)
+        proc_config = {
+            'command': 'cat',
+            'autostart': True
+        }
+        parser = self._make_config_parser(proc_section, proc_config)
+        try:
+            new_configs = options.processes_from_section(parser, proc_section, group)
+        except ValueError as e:
+            raise RPCError(SupervisorFaults.INCORRECT_PARAMETERS, e)
 
-        customargs = config.get('program:red', 'customargs')
-        print(customargs)
-        return list(self.supervisord.process_groups.keys())
+        assert len(new_configs) == 1, 'We can create only one config at a time'
+        new_config = new_configs[0]
+        # Override configuration for the program to use with celery multi
+        import pdb; pdb.set_trace()
+        new_config.create_autochildlogs()
+        group.processes[new_config.name] = new_config.make_process(group)
+
+        return True
 
     def log(self, message, level=supervisor.loggers.LevelsByName.INFO):
         self._update('log')
@@ -61,87 +88,23 @@ class ConfigReaderNamespaceRPCInterface(object):
         self.supervisord.options.logger.log(level, message)
         return True
 
-    def addProgramToGroup(self, group_name, program_name, program_options):
-        """ Add a new program to an existing process group.  Depending on the
-            numprocs option, this will result in one or more processes being
-            added to the group.
-
-        @param string  group_name       Name of an existing process group
-        @param string  program_name     Name of the new process in the process table
-        @param struct  program_options  Program options, same as in supervisord.conf
-        @return boolean                 Always True unless error
-        """
-        self._update('addProgramToGroup')
-
-        group = self._getProcessGroup(group_name)
-
-        # make configparser instance for program options
-        section_name = 'program:%s' % program_name
-        parser = self._makeConfigParser(section_name, program_options)
-
-        # make process configs from parser instance
-        options = self.supervisord.options
-        try:
-            new_configs = options.processes_from_section(parser, section_name, group_name)
-        except ValueError as e:
-            raise RPCError(SupervisorFaults.INCORRECT_PARAMETERS, e)
-
-        # check new process names don't already exist in the config
-        for new_config in new_configs:
-            for existing_config in group.config.process_configs:
-                if new_config.name == existing_config.name:
-                    raise RPCError(SupervisorFaults.BAD_NAME, new_config.name)
-
-        # add process configs to group
-        group.config.process_configs.extend(new_configs)
-
-        for new_config in new_configs:
-            # the process group config already exists and its after_setuid hook
-            # will not be called again to make the auto child logs for this process.
-            new_config.create_autochildlogs()
-
-            # add process instance
-            group.processes[new_config.name] = new_config.make_process(group)
-
-        return True
-
-    def removeProcessFromGroup(self, group_name, process_name):
-        """ Remove a process from a process group.  When a program is added with
-            addProgramToGroup(), one or more processes for that program is added
-            to the group.  This method removes individual processes (named by the
-            numprocs and process_name options), not programs.
-
-        @param string group_name    Name of an existing process group
-        @param string process_name  Name of the process to remove from group
-        @return boolean             Always return True unless error
-        """
-        self._update('removeProcessFromGroup')
-
-        group = self._getProcessGroup(group_name)
-
-        # check process exists and is running
-        process = group.processes.get(process_name)
-        if process is None:
-            raise RPCError(SupervisorFaults.BAD_NAME, process_name)
-        if process.pid or process.state not in STOPPED_STATES:
-            raise RPCError(SupervisorFaults.STILL_RUNNING, process_name)
-
-        group.transition()
-
-        # del process config from group, then del process
-        for index, config in enumerate(group.config.process_configs):
-            if config.name == process_name:
-                del group.config.process_configs[index]
-
-        del group.processes[process_name]
-        return True
-
-    def _getProcessGroup(self, name):
+    def _get_process_group(self, name):
         """ Find a process group by its name """
         group = self.supervisord.process_groups.get(name)
         if group is None:
             raise RPCError(SupervisorFaults.BAD_NAME, 'group: %s' % name)
         return group
+
+    def _make_config_parser(self, section_name, options):
+        config_parser = UnhosedConfigParser()
+        try:
+            config_parser.add_section(section_name)
+            for key, value in dict(options).items():
+                config_parser.set(section_name, key, value)
+        except (TypeError, ValueError) as e:
+            return RPCError(SupervisorFaults.INCORRECT_PARAMETERS)
+
+        return config_parser
 
 
 def make_config_reader_rpcinterface(supervisord, **config):
