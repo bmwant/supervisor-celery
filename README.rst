@@ -39,14 +39,6 @@ And then add into your supervisor.conf:
   [ctlplugin:celerymulti]
   supervisor.ctl_factory = supervisorcelery.controllerplugin:make_celerymulti_controllerplugin
 
-Configuration
-=============
-
-::
-
-  [ctlplugin:celerymulti]
-  supervisor.ctl_factory = supervisorwildcards.controllerplugin:make_wildcards_controllerplugin
-
 Changelog
 =========
 
