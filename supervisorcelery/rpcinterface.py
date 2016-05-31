@@ -3,9 +3,8 @@ import ConfigParser
 import supervisor.loggers
 
 from supervisor.options import UnhosedConfigParser, ProcessConfig
-from supervisor.datatypes import list_of_strings
 from supervisor.states import SupervisorStates
-from supervisor.states import STOPPED_STATES
+from supervisor.states import ProcessStates
 from supervisor.xmlrpc import Faults as SupervisorFaults
 from supervisor.xmlrpc import RPCError
 
@@ -16,6 +15,8 @@ API_VERSION = '1.0'
 class ConfigReaderNamespaceRPCInterface(object):
     """
     """
+    CELERY_MULTI_COMMAND_TMPL = 'celery multi {command} {args}'
+
     def __init__(self, supervisord, **config):
         self.supervisord = supervisord
 
@@ -27,53 +28,76 @@ class ConfigReaderNamespaceRPCInterface(object):
         self._update('get_api_version')
         return API_VERSION
 
-    def get_test(self):
-        self._update('get_test')
+    def _create_command(self, command, args):
+        return self.CELERY_MULTI_COMMAND_TMPL.format(command=command, 
+                                                     args=args)
 
+    def _extract_params(self, proc_name, proc_section):
         configfile = self.supervisord.options.configfile
         config = ConfigParser.RawConfigParser()
         config.read(configfile)
-        proc_section = 'program:red'
-        workernames = config.get(proc_section, 'workernames')
-        tasks = config.get(proc_section, 'tasks')
-        concurrency = config.getint(proc_section, 'concurrency')
-        loglevel = config.get(proc_section, 'loglevel')
-        logfile = config.get(proc_section, 'logfile')
-        pidfile = config.get(proc_section, 'pidfile')
-        group = self._get_process_group('red')
-        print(group)
-        options = self.supervisord.options
-        proc_command = ('celery multi start {workers} -A {tasks} '
-                        '--concurrency={concurrency} '
-                        '--loglevel={loglevel} '
-                        '--logfile={logfile} '
-                        '--pidfile={pidfile}'.format(
-            workers=workernames,
-            tasks=tasks,
-            concurrency=concurrency,
-            loglevel=loglevel,
-            logfile=logfile,
-            pidfile=pidfile
-        ))
-        print(proc_command)
+
+        req_params = ('workernames', 'tasks')
+        opt_params = ('concurrency', 'loglevel', 'logfile', 'pidfile')
+        params_dict = {}
+        for param in req_params:
+            try:
+                params_dict[param] = config.get(proc_section, param)
+            except ConfigParser.NoOptionError:
+                raise RPCError(SupervisorFaults.BAD_ARGUMENTS)
+
+        req_command = '{workernames} -A {tasks} '.format(**params_dict)
+        opt_command = ''
+        for param in opt_params:
+            param_value = None
+            try:
+                param_value = config.get(proc_section, param)
+            except ConfigParser.NoOptionError:
+                pass
+
+            if param_value is not None:
+                opt_command += '--{param}={param_value} '.format(
+                        param=param,
+                        param_value=param_value)
+
+        # Replace supervisor special chars to use celery wildcards
+        command = req_command + opt_command.replace('%%', '%')
+        return command
+
+    def start_app(self, proc_name):
+        self._update('start_app')
+
+        proc_section = 'program:{proc_name}'.format(proc_name=proc_name)
+        group = self._get_process_group(proc_name)
+        fake_process = group.processes[proc_name]
+
+        celery_command = 'start'
+        command_args = self._extract_params(proc_name, proc_section)
+
         proc_config = {
-            'command': 'cat',
-            'autostart': True
+            'command': self._create_command(celery_command, command_args),
+            'autostart': True,
+            'startretries': 0,
+            'startsecs': 0,
         }
-        parser = self._make_config_parser(proc_section, proc_config)
-        try:
-            new_configs = options.processes_from_section(parser, proc_section, group)
-        except ValueError as e:
-            raise RPCError(SupervisorFaults.INCORRECT_PARAMETERS, e)
 
-        assert len(new_configs) == 1, 'We can create only one config at a time'
-        new_config = new_configs[0]
         # Override configuration for the program to use with celery multi
-        import pdb; pdb.set_trace()
-        new_config.create_autochildlogs()
-        group.processes[new_config.name] = new_config.make_process(group)
+        merged_config = self._merge_configs(fake_process.config, proc_config)
 
+        group.processes[proc_name] = merged_config.make_process(group)
+        current_proc = group.processes[proc_name]
+        current_proc.spawn()
+        # todo (misha): change process state
+        current_proc.change_state(ProcessStates.RUNNING)
         return True
+
+    def restart_app(self, proc_name):
+        self._update('restart_app')
+        celery_command = 'restart'
+
+    def stop_app(self, proc_name):
+        self._update('stop_app')
+        celery_command = 'stop'
 
     def log(self, message, level=supervisor.loggers.LevelsByName.INFO):
         self._update('log')
@@ -87,6 +111,12 @@ class ConfigReaderNamespaceRPCInterface(object):
 
         self.supervisord.options.logger.log(level, message)
         return True
+
+    def _merge_configs(self, old_config, new_config):
+        for key, value in old_config.__dict__.items():
+            if key in new_config:
+                setattr(old_config, key, new_config[key])
+        return old_config
 
     def _get_process_group(self, name):
         """ Find a process group by its name """
